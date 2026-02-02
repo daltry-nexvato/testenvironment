@@ -134,6 +134,7 @@ interface Projectile { x: number; y: number; vx: number; vy: number; world: Worl
 interface Powerup { x: number; y: number; w: number; h: number; world: World; collected: boolean; bobOffset: number; }
 interface LitterBox { x: number; y: number; w: number; h: number; reached: boolean; }
 interface BloodSplat { x: number; y: number; size: number; life: number; maxLife: number; drops: {dx: number; dy: number; s: number}[]; }
+interface PoopTower { x: number; y: number; layers: number; maxLayers: number; growTimer: number; growInterval: number; shakeIntensity: number; complete: boolean; }
 
 interface GameState {
   running: boolean; started: boolean; gameOver: boolean;
@@ -144,6 +145,7 @@ interface GameState {
   stars: Star[]; projectiles: Projectile[];
   powerups: Powerup[]; bloodSplats: BloodSplat[];
   litterBox: LitterBox | null;
+  poopTower: PoopTower | null;
   world: World; level: number; levelStartX: number;
   score: number; highScore: number;
   combo: number; comboTimer: number;
@@ -155,6 +157,7 @@ interface GameState {
   screenShake: number;
   levelComplete: boolean; levelTransitionTimer: number;
   showLevelIntro: boolean; levelIntroTimer: number;
+  currentSkyColors: string[]; currentGroundColors: string[];
 }
 
 // ─── Blood & Gore Effects ────────────────────────────────
@@ -921,6 +924,135 @@ function drawBloodSplats(ctx: CanvasRenderingContext2D, splats: BloodSplat[]) {
   });
 }
 
+function drawPoopTower(ctx: CanvasRenderingContext2D, tower: PoopTower, camX: number, tick: number) {
+  const sx = tower.x - camX;
+  if (sx > CW + 100 || sx < -100) return;
+  ctx.save();
+
+  // Shake the whole tower as it grows
+  const shake = tower.shakeIntensity > 0 ? (Math.random() - 0.5) * tower.shakeIntensity : 0;
+  ctx.translate(shake, 0);
+
+  const layerH = 18;
+  const baseW = 44;
+
+  // Stink lines
+  if (tower.layers > 2) {
+    ctx.save();
+    ctx.globalAlpha = 0.3 + Math.sin(tick * 0.1) * 0.15;
+    ctx.strokeStyle = "#7CFC00";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < Math.min(tower.layers, 6); i++) {
+      const waveX = Math.sin(tick * 0.08 + i * 1.5) * 12;
+      const topY = tower.y - tower.layers * layerH;
+      ctx.beginPath();
+      ctx.moveTo(sx + baseW / 2 - 15 + i * 8, topY - 5);
+      ctx.quadraticCurveTo(sx + baseW / 2 - 15 + i * 8 + waveX, topY - 25 - i * 5, sx + baseW / 2 - 15 + i * 8 - waveX * 0.5, topY - 45 - i * 8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Draw each layer of the tower from bottom to top
+  for (let i = 0; i < tower.layers; i++) {
+    const layerY = tower.y - (i + 1) * layerH;
+    const taper = Math.max(0.5, 1 - i * 0.06);
+    const w = baseW * taper;
+    const offX = sx + (baseW - w) / 2;
+
+    // Poop swirl shape for each layer
+    const poopColors = ["#8B4513", "#6B3410", "#A0522D", "#7B3F00"];
+    const c = poopColors[i % poopColors.length];
+
+    // Shadow
+    ctx.save();
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = "#3D1C00";
+    ctx.beginPath();
+    ctx.ellipse(offX + w / 2 + 3, layerY + layerH / 2 + 2, w / 2 + 2, layerH / 2 + 1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Main blob
+    ctx.fillStyle = c;
+    ctx.beginPath();
+    ctx.ellipse(offX + w / 2, layerY + layerH / 2, w / 2, layerH / 2 + 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Highlight
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = "#D2A679";
+    ctx.beginPath();
+    ctx.ellipse(offX + w / 2 - 4, layerY + layerH / 2 - 3, w / 4, layerH / 4, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Swirl detail
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = "#5C2D00";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    const swCx = offX + w / 2;
+    const swCy = layerY + layerH / 2;
+    for (let a = 0; a < Math.PI * 1.8; a += 0.15) {
+      const sr = a * 2.2;
+      ctx.lineTo(swCx + Math.cos(a + i) * sr, swCy + Math.sin(a + i) * sr * 0.6);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Top swirl peak (classic poop emoji peak)
+  if (tower.layers >= 3) {
+    const topY = tower.y - tower.layers * layerH;
+    const peakW = baseW * Math.max(0.3, 1 - tower.layers * 0.06);
+    ctx.fillStyle = "#8B4513";
+    ctx.beginPath();
+    ctx.moveTo(sx + baseW / 2 - peakW / 3, topY);
+    ctx.quadraticCurveTo(sx + baseW / 2, topY - 18, sx + baseW / 2 + peakW / 4, topY - 4);
+    ctx.fill();
+  }
+
+  // Flies buzzing around if tall enough
+  if (tower.layers > 4) {
+    ctx.fillStyle = "#000";
+    const topY = tower.y - tower.layers * layerH;
+    for (let i = 0; i < Math.min(tower.layers - 3, 8); i++) {
+      const flyA = tick * 0.12 + i * 1.3;
+      const flyR = 20 + i * 5;
+      const fx = sx + baseW / 2 + Math.cos(flyA) * flyR;
+      const fy = topY - 10 + Math.sin(flyA * 1.5) * flyR * 0.5;
+      ctx.beginPath();
+      ctx.arc(fx, fy, 2, 0, Math.PI * 2);
+      ctx.fill();
+      // Wings
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = "#aaa";
+      ctx.beginPath();
+      ctx.ellipse(fx - 2, fy - 2, 3, 1.5, Math.sin(tick * 0.5 + i), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(fx + 2, fy - 2, 3, 1.5, -Math.sin(tick * 0.5 + i), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Ground splatter ring at base
+  ctx.save();
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = "#6B3410";
+  ctx.beginPath();
+  ctx.ellipse(sx + baseW / 2, tower.y + 3, baseW / 2 + 8 + tower.layers * 2, 6 + tower.layers, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
 function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, world: World, tick: number) {
   ctx.save();
   if (p.invincible > 0 && Math.floor(tick / 4) % 2 === 0) ctx.globalAlpha = 0.4;
@@ -1074,7 +1206,7 @@ export default function Home() {
       platforms: [], obstacles: [], portals: [], coins: [],
       particles: [], bgElements: [], stars: [],
       projectiles: [], powerups: [], bloodSplats: [],
-      litterBox: null,
+      litterBox: null, poopTower: null,
       world: lv.world, level: 0, levelStartX: 0,
       score: 0, highScore: hs, combo: 0, comboTimer: 0,
       camX: 0, tick: 0, keys: {},
@@ -1082,6 +1214,7 @@ export default function Home() {
       transitionAlpha: 0, transitionTarget: null, screenShake: 0,
       levelComplete: false, levelTransitionTimer: 0,
       showLevelIntro: true, levelIntroTimer: 150,
+      currentSkyColors: [...lv.skyColors], currentGroundColors: [...lv.groundColors],
     };
     genBg(gameRef.current.bgElements, lv);
     genStars(gameRef.current.stars);
@@ -1196,12 +1329,38 @@ function update(g: GameState) {
   // Level complete transition
   if (g.levelComplete) {
     g.levelTransitionTimer--;
+    // Poop tower grows dramatically
+    if (g.poopTower && !g.poopTower.complete) {
+      g.poopTower.growTimer--;
+      if (g.poopTower.growTimer <= 0 && g.poopTower.layers < g.poopTower.maxLayers) {
+        g.poopTower.layers++;
+        g.poopTower.growTimer = g.poopTower.growInterval;
+        g.screenShake = 5 + g.poopTower.layers * 2;
+        g.poopTower.shakeIntensity = 3 + g.poopTower.layers;
+        // Fart/splat particles each layer
+        spawnPoop(g.particles, g.poopTower.x + 22, g.poopTower.y - g.poopTower.layers * 18);
+        spawnParticles(g.particles, g.poopTower.x + 22, g.poopTower.y - g.poopTower.layers * 18, "#7CFC00", 4);
+        // Move cat up to sit on top
+        p.y = g.poopTower.y - g.poopTower.layers * 18 - p.h - 8;
+        p.x = g.poopTower.x - 2;
+      }
+      if (g.poopTower.layers >= g.poopTower.maxLayers) {
+        g.poopTower.complete = true;
+        p.pooping = false;
+        g.score += 200 + g.level * 50;
+        g.screenShake = 30;
+        // Huge celebration burst
+        spawnPoop(g.particles, g.poopTower.x + 22, g.poopTower.y - g.poopTower.layers * 18);
+        spawnParticles(g.particles, g.poopTower.x + 22, p.y, "#FFD700", 30);
+        spawnParticles(g.particles, g.poopTower.x + 22, p.y, "#8B4513", 20);
+      }
+      g.poopTower.shakeIntensity *= 0.92;
+    }
     if (p.pooping) {
       p.poopTimer--;
-      if (p.poopTimer % 8 === 0) spawnPoop(g.particles, p.x + p.w / 2, p.y + p.h);
-      if (p.poopTimer <= 0) {
+      if (p.poopTimer % 5 === 0) spawnPoop(g.particles, p.x + p.w / 2, p.y + p.h);
+      if (p.poopTimer <= 0 && (!g.poopTower || g.poopTower.complete)) {
         p.pooping = false;
-        g.score += 100;
       }
     }
     if (g.levelTransitionTimer <= 0) {
@@ -1212,10 +1371,17 @@ function update(g: GameState) {
       g.levelStartX = g.camX;
       g.levelComplete = false;
       g.litterBox = null;
+      g.poopTower = null;
       g.showLevelIntro = true;
       g.levelIntroTimer = 120;
+      g.currentSkyColors = [...nlv.skyColors];
+      g.currentGroundColors = [...nlv.groundColors];
       genBg(g.bgElements, nlv);
       g.platforms.forEach(pl => pl.world = nlv.world);
+      // Reset player position
+      p.y = GY - p.h;
+      p.onGround = true;
+      p.vy = 0;
     }
     return;
   }
@@ -1261,11 +1427,18 @@ function update(g: GameState) {
     if (p.x + p.w > lb.x && p.x < lb.x + lb.w && p.y + p.h > lb.y && p.y < lb.y + lb.h) {
       lb.reached = true;
       g.levelComplete = true;
-      g.levelTransitionTimer = 120;
+      const towerLayers = 6 + Math.min(g.level, 6);
+      g.levelTransitionTimer = towerLayers * 12 + 90;
       p.pooping = true;
-      p.poopTimer = 60;
-      g.screenShake = 12;
-      spawnParticles(g.particles, p.x + p.w/2, p.y + p.h, "#8B4513", 15);
+      p.poopTimer = towerLayers * 12 + 40;
+      g.screenShake = 15;
+      spawnParticles(g.particles, p.x + p.w/2, p.y + p.h, "#8B4513", 20);
+      g.poopTower = {
+        x: lb.x + lb.w / 2 - 22, y: lb.y,
+        layers: 0, maxLayers: towerLayers,
+        growTimer: 8, growInterval: 10,
+        shakeIntensity: 0, complete: false,
+      };
     }
   }
 
@@ -1359,8 +1532,11 @@ function update(g: GameState) {
     g.transitionAlpha += 0.04;
     if (g.transitionAlpha >= 1) {
       g.world = g.transitionTarget; g.transitionTarget = null; g.transitionAlpha = 0;
-      const nlv = LEVELS[g.level % LEVELS.length];
-      genBg(g.bgElements, { ...nlv, world: g.world, bgEmojis: g.world === "paradise" ? nlv.bgEmojis : LEVELS[1].bgEmojis });
+      // Find a level definition matching the new world for colors
+      const matchLv = LEVELS.find(l => l.world === g.world) || LEVELS[0];
+      g.currentSkyColors = [...matchLv.skyColors];
+      g.currentGroundColors = [...matchLv.groundColors];
+      genBg(g.bgElements, { ...matchLv, bgEmojis: matchLv.bgEmojis });
       g.platforms.forEach(pl => pl.world = g.world);
     }
   }
@@ -1386,7 +1562,7 @@ function draw(ctx: CanvasRenderingContext2D, g: GameState) {
     ctx.translate((Math.random() - 0.5) * g.screenShake, (Math.random() - 0.5) * g.screenShake);
   }
 
-  drawSky(ctx, lv.skyColors, g.camX, g.tick, g.world);
+  drawSky(ctx, g.currentSkyColors, g.camX, g.tick, g.world);
 
   if (g.world === "hell") {
     g.stars.forEach(s => {
@@ -1399,7 +1575,7 @@ function draw(ctx: CanvasRenderingContext2D, g: GameState) {
   }
 
   drawBgElements(ctx, g.bgElements, g.camX, g.tick);
-  drawGround(ctx, lv.groundColors, g.camX, g.tick, g.world, g.level);
+  drawGround(ctx, g.currentGroundColors, g.camX, g.tick, g.world, g.level);
   drawBloodSplats(ctx, g.bloodSplats);
   g.platforms.forEach(p => drawPlatform(ctx, p, g.camX));
   g.coins.forEach(c => drawCoin(ctx, c, g.camX, g.tick));
@@ -1413,11 +1589,9 @@ function draw(ctx: CanvasRenderingContext2D, g: GameState) {
   drawPlayer(ctx, { ...g.player, x: spx }, g.world, g.tick);
   drawParticles(ctx, g.particles);
 
-  // Poop on ground after pooping
-  if (g.levelComplete && g.litterBox) {
-    const lbsx = g.litterBox.x - g.camX;
-    ctx.font = "28px serif";
-    ctx.fillText("💩", lbsx + 15, g.litterBox.y - 5);
+  // Poop tower
+  if (g.poopTower && g.poopTower.layers > 0) {
+    drawPoopTower(ctx, g.poopTower, g.camX, g.tick);
   }
 
   if (g.transitionAlpha > 0) {
@@ -1473,7 +1647,10 @@ function draw(ctx: CanvasRenderingContext2D, g: GameState) {
     ctx.fillStyle = "#FFD700";
     ctx.shadowColor = "#FF8C00";
     ctx.shadowBlur = 20;
-    ctx.fillText(g.player.pooping ? "💩 TAKING A DUMP... 💩" : "✅ LEVEL COMPLETE!", CW / 2, CH * 0.35);
+    const towerMsg = g.poopTower && !g.poopTower.complete
+      ? `💩 BUILDING THE TOWER... (${g.poopTower.layers}/${g.poopTower.maxLayers}) 💩`
+      : g.player.pooping ? "💩 MEGA DUMP!!! 💩" : "✅ LEVEL COMPLETE!";
+    ctx.fillText(towerMsg, CW / 2, CH * 0.35);
     ctx.shadowBlur = 0;
     ctx.font = "28px Arial";
     ctx.fillStyle = "#fff";
