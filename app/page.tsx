@@ -86,6 +86,35 @@ interface Star {
   speed: number;
 }
 
+interface GameState {
+  running: boolean;
+  started: boolean;
+  gameOver: boolean;
+  player: Player;
+  platforms: Platform[];
+  obstacles: Obstacle[];
+  portals: Portal[];
+  coins: Coin[];
+  particles: Particle[];
+  bgElements: BackgroundElement[];
+  stars: Star[];
+  world: World;
+  score: number;
+  highScore: number;
+  combo: number;
+  comboTimer: number;
+  camX: number;
+  tick: number;
+  keys: Record<string, boolean>;
+  lastObstacle: number;
+  lastPortal: number;
+  lastCoin: number;
+  lastPlatform: number;
+  transitionAlpha: number;
+  transitionTarget: World | null;
+  screenShake: number;
+}
+
 interface BackgroundElement {
   x: number;
   y: number;
@@ -581,34 +610,7 @@ function roundRect(
 // ─── Main Component ──────────────────────────────────────
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const gameRef = useRef<{
-    running: boolean;
-    started: boolean;
-    gameOver: boolean;
-    player: Player;
-    platforms: Platform[];
-    obstacles: Obstacle[];
-    portals: Portal[];
-    coins: Coin[];
-    particles: Particle[];
-    bgElements: BackgroundElement[];
-    stars: Star[];
-    world: World;
-    score: number;
-    highScore: number;
-    combo: number;
-    comboTimer: number;
-    camX: number;
-    tick: number;
-    keys: Record<string, boolean>;
-    lastObstacle: number;
-    lastPortal: number;
-    lastCoin: number;
-    lastPlatform: number;
-    transitionAlpha: number;
-    transitionTarget: World | null;
-    screenShake: number;
-  }>();
+  const gameRef = useRef<GameState | null>(null);
 
   const initGame = useCallback(() => {
     const hs = typeof window !== "undefined"
@@ -790,7 +792,7 @@ function generateInitialPlatforms(arr: Platform[], world: World) {
   }
 }
 
-function spawnObstacle(g: typeof gameRef extends React.MutableRefObject<infer T> ? NonNullable<T> : never) {
+function spawnObstacle(g: GameState) {
   const spawnX = g.camX + CANVAS_W + 50;
   const types = g.world === "paradise" ? ["rock", "bee", "cactus"] : ["fireball", "demon", "fire"];
   const type = types[Math.floor(Math.random() * types.length)];
@@ -807,7 +809,7 @@ function spawnObstacle(g: typeof gameRef extends React.MutableRefObject<infer T>
   });
 }
 
-function spawnPortal(g: typeof gameRef extends React.MutableRefObject<infer T> ? NonNullable<T> : never) {
+function spawnPortal(g: GameState) {
   const spawnX = g.camX + CANVAS_W + 80;
   g.portals.push({
     x: spawnX,
@@ -819,7 +821,7 @@ function spawnPortal(g: typeof gameRef extends React.MutableRefObject<infer T> ?
   });
 }
 
-function spawnCoin(g: typeof gameRef extends React.MutableRefObject<infer T> ? NonNullable<T> : never) {
+function spawnCoin(g: GameState) {
   const spawnX = g.camX + CANVAS_W + 30;
   const isHigh = Math.random() > 0.5;
   g.coins.push({
@@ -832,7 +834,7 @@ function spawnCoin(g: typeof gameRef extends React.MutableRefObject<infer T> ? N
   });
 }
 
-function spawnPlatform(g: typeof gameRef extends React.MutableRefObject<infer T> ? NonNullable<T> : never) {
+function spawnPlatform(g: GameState) {
   const spawnX = g.camX + CANVAS_W + 100;
   const heights = [GROUND_Y - 90, GROUND_Y - 140, GROUND_Y - 190];
   g.platforms.push({
@@ -866,8 +868,6 @@ function spawnParticles(
 }
 
 // ─── Update ──────────────────────────────────────────────
-type GameState = NonNullable<typeof gameRef extends React.MutableRefObject<infer T> ? T : never>;
-
 function update(g: GameState) {
   const p = g.player;
 
